@@ -59,14 +59,14 @@ You have a prompt ready — just drafted via `draft-impl-prompt`, or written inl
 
 ## Steps
 
-1. **Write the prompt to a file** under `${TMPDIR:-/tmp}/launch-session/` with a short slug (ticket id or task name): `<slug>.txt` (`mkdir -p` the directory first). Write the prompt CONTENT only — no dashed rules, no commentary. The coordination footer (step 4) is appended separately.
+1. **Write the prompt to a file** at `/tmp/launch-session/<slug>.txt` — a short slug (ticket id or task name), `mkdir -p` the directory first. Write the prompt CONTENT only — no dashed rules, no commentary. The coordination footer (step 4) is appended separately. **Use this literal `/tmp/…` path, NOT `$TMPDIR`** — the Write tool cannot expand `$TMPDIR`, and on macOS `$TMPDIR` is `/var/folders/…/T/`, not `/tmp`; if this write and the step-4 `$FILE` resolve differently, the child launches with the footer ONLY and no task. Step 4 reads this exact path.
 2. **Gate on cmux.** If `$CMUX_SURFACE_ID` is unset, you are not in cmux — print `claude "$(cat <file>)"` for the user to run manually, and stop.
 3. **Get your own session name.** Call `ListAgents`; the first line reads `This session is <MAIN> [ref]`. That `<MAIN>` is the address the child reports back to — you will substitute it as `LAUNCHER` below.
 4. **Resolve the mode, place the child, and seed it.** The block below is mode-aware: `tab` opens a tab beside you; `pane` reuses this workspace's bottom pane (creating it on first use). Both paths end by capturing the child's **stable surface UUID** for teardown and typing `claude -n <NAME>` into the new surface.
 
 ```bash
 # --- config ---
-FILE="${TMPDIR:-/tmp}/launch-session/<slug>.txt"
+FILE="/tmp/launch-session/<slug>.txt"           # MUST match the step-1 write path exactly (literal /tmp, not $TMPDIR)
 SLUG="<slug>"
 LAUNCHER="<MAIN>"                                # from ListAgents (step 3)
 
@@ -84,6 +84,11 @@ NAME="${PREFIX:+$PREFIX-}$SLUG-$(openssl rand -hex 3)"   # <prefix>-<slug>-<rand
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/launch-session"; mkdir -p "$STATE_DIR"
 REG="$STATE_DIR/sessions.tsv"                    # durable registry: name,mode,surface_uuid,pane_uuid,slug,launcher,ts
 PANE_STATE="$STATE_DIR/pane-$CMUX_WORKSPACE_ID"  # this workspace's shared bottom-pane UUID
+
+# guard: the step-1 prompt write MUST have landed at this exact $FILE. If it is empty or
+# missing (e.g. it went to a different dir), fail LOUD instead of launching a child with the
+# footer only and no task.
+[ -s "$FILE" ] || { echo "prompt file empty/missing: $FILE — step-1 write did not land here"; exit 1; }
 
 # append a coordination footer so the child knows who launched it and how to reply
 cat >> "$FILE" <<EOF
@@ -159,7 +164,7 @@ Always close by the stored **UUID**, never a `surface:N` short ref — indices r
 - `-n "$NAME"` sets the claude session's display name; it sticks for interactive sessions, so `ListAgents`/`SendMessage` address it by that name. cmux treats an explicit `-n` name as user-chosen, so the tab shows `$NAME` and cmux's `workspaceAutoNaming` will NOT summarize it. Do not add a `cmux rename-tab` call — redundant with `-n`, and it suppresses any future auto-naming.
 - Reading the prompt from a file inside the new shell sidesteps quoting a multi-line prompt; the trailing `\n` in `send` is Enter, so `claude` runs immediately.
 - One surface = one fresh session. Launch several for parallel handoffs — each gets its own random `$NAME` and its own registry line. In `pane` mode they stack as tabs inside the one bottom pane.
-- The prompt file lives in `${TMPDIR:-/tmp}` (ephemeral); the registry and pane state live under `${XDG_STATE_HOME:-$HOME/.local/state}/launch-session/` (durable — the shared-pane UUID must survive across launches within a session).
+- The prompt file lives in `/tmp/launch-session/` (ephemeral); the registry and pane state live under `${XDG_STATE_HOME:-$HOME/.local/state}/launch-session/` (durable — the shared-pane UUID must survive across launches within a session). The prompt path is a literal `/tmp` on purpose: the step-1 Write and the step-4 `$FILE` must resolve to the SAME file, and the Write tool cannot expand `$TMPDIR`.
 
 ## Common mistakes
 
@@ -167,5 +172,6 @@ Always close by the stored **UUID**, never a `surface:N` short ref — indices r
 - Double-quoting the `send` string, letting THIS shell expand `$(cat …)` — single-quote it so the NEW shell does the read.
 - Storing or closing by the `surface:N` short ref instead of the UUID — it renumbers and will close the wrong surface later.
 - Forgetting the cmux gate — outside cmux, placement fails silently and nothing launches.
+- Writing the step-1 prompt to a path that differs from the step-4 `$FILE` — e.g. step 1 to literal `/tmp` while `$FILE` uses `$TMPDIR` (macOS `$TMPDIR` = `/var/folders/…/T/`, not `/tmp`). They diverge, `cat >> "$FILE"` creates a fresh footer-only file, and the child launches with the coordination footer but NO task. Both must be the literal `/tmp/launch-session/<slug>.txt`; the step-4 `[ -s "$FILE" ]` guard catches a miss.
 - Adding a `cmux rename-tab` call — redundant with `-n` and it suppresses future auto-naming.
 - In `pane` mode, keying the container on `current-workspace` instead of `$CMUX_WORKSPACE_ID` — you'll target the focused workspace, not yours.
