@@ -2,9 +2,15 @@
 
 ## Prerequisites
 
-- **cmux** — the terminal multiplexer this skill drives. You must run your Claude Code session *inside* a cmux surface; the skill reads `$CMUX_SURFACE_ID` and calls the `cmux` CLI for placement and teardown. Outside cmux the skill only prints a manual command.
-- **Claude Code** with cross-session messaging (`ListAgents` / `SendMessage`) — stock. This is what makes launched sessions addressable by name.
-- A **POSIX shell** with coreutils (`grep`, `sed`, `awk`, `openssl`). No Python, Node, or other runtime required.
+- **A supported terminal — auto-detected** (run your Claude Code session *inside* one):
+  - **tmux** (`$TMUX`) — `tmux` CLI. **Cross-platform** (macOS/Linux/BSD/WSL).
+  - **cmux** (`$CMUX_SURFACE_ID`) — `cmux` CLI. macOS.
+  - **iTerm2** (macOS, `$TERM_PROGRAM=iTerm.app`) — AppleScript via `osascript`.
+  - **Ghostty** (macOS, `$TERM_PROGRAM=ghostty`) — AppleScript via `osascript`.
+  - Inside none, the skill only prints a manual command.
+- **Claude Code** with cross-session messaging (`ListAgents` / `SendMessage`) — stock, target-independent.
+- **bash** + coreutils (`grep`, `sed`, `awk`) + `openssl`. No Python/Node. iTerm2/Ghostty are macOS-only (AppleScript); tmux is fully portable.
+- **macOS Automation permission** — the first iTerm2/Ghostty launch triggers a one-time "allow … to control iTerm2/Ghostty?" system prompt you must Allow (System Settings → Privacy & Security → Automation).
 
 ## Setup
 
@@ -13,9 +19,12 @@
    ```
    ~/.claude/skills/launch-session/
      SKILL.md
+     launch.sh     # the driver — must be executable: chmod +x launch.sh
      README.md
      INSTALL.md
    ```
+
+   Ensure `launch.sh` is executable (`chmod +x ~/.claude/skills/launch-session/launch.sh`). `SKILL.md` calls it by that path.
 
 2. (Optional) Create a config file to set defaults — mode, name prefix, split direction:
 
@@ -34,14 +43,14 @@
 
 ## Verify
 
-1. Confirm cmux is on `PATH` and you are inside a surface:
+1. Confirm the driver detects your terminal:
 
    ```sh
-   cmux version && echo "surface: ${CMUX_SURFACE_ID:?not in a cmux surface}"
+   ~/.claude/skills/launch-session/launch.sh detect   # → tmux | cmux | iterm2 | ghostty | none
    ```
 
 2. Confirm the skill is discoverable — in Claude Code, `/launch-session` should resolve, or the agent should offer it when you ask to "launch it in a new tab."
 
-3. Smoke test: draft a trivial prompt and launch it. The launcher should report a session name (e.g. `mytask-a3f9c1`) and confirm two-way messaging is ready. Close it afterward via the skill's teardown.
+3. Smoke test: draft a trivial prompt and launch it. The launcher reports a session name (e.g. `mytask-a3f9c1`) and confirms two-way messaging is ready. Close it afterward with `launch.sh close --name <name>`. On iTerm2/Ghostty, the first launch pops the macOS Automation prompt — Allow it.
 
-No build or dependency-install step is needed — the skill is plain Markdown driving the `cmux` CLI.
+No build step is needed — `launch.sh` is a bash script driving each terminal's native CLI or AppleScript.

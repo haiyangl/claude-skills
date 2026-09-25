@@ -25,13 +25,18 @@ One session hands out work to several fresh sessions, each of which can fan out 
 - Names the child deterministically so it's addressable immediately (no post-launch id discovery).
 - Appends a short coordination footer telling the child who launched it and how to reply.
 - Records the child in a small registry so you can tear it down later by a stable handle.
-- Places the child according to a **mode** — a new tab, or a shared bottom pane that many launches stack into.
+- Places the child according to a **mode** — a new tab/window, or a shared pane/window that launches stack into — in whichever terminal you're in (**cmux, tmux, iTerm2, or Ghostty — auto-detected**).
 
 ## Requirements
 
-- **cmux** — the terminal multiplexer this skill drives: https://www.cmux.dev/ (install: `brew install --cask cmux`). You must be running inside a cmux surface (`$CMUX_SURFACE_ID` set). Outside cmux the skill degrades to printing a command for you to run manually.
-- **Claude Code** with cross-session messaging (`ListAgents` / `SendMessage`) — stock. This is what makes launched sessions addressable by name.
-- A POSIX shell with coreutils (`grep`, `sed`, `awk`). No Python required.
+- **A supported terminal — auto-detected** (precedence top→bottom):
+  - **tmux** — `$TMUX` set. Cross-platform (macOS/Linux/BSD/WSL) — the one fully portable target.
+  - **cmux** — https://www.cmux.dev/ (`brew install --cask cmux`), `$CMUX_SURFACE_ID` set. macOS.
+  - **iTerm2** — macOS, `$TERM_PROGRAM=iTerm.app`. Driven via AppleScript.
+  - **Ghostty** — macOS, `$TERM_PROGRAM=ghostty`. Driven via AppleScript.
+  - Multiplexers win over the host terminal (they run inside it); cmux reports `TERM_PROGRAM=ghostty`, so cmux is checked before Ghostty. Inside none, the skill prints a manual command.
+- **Claude Code** with cross-session messaging (`ListAgents` / `SendMessage`) — stock, and target-independent.
+- **bash** + coreutils + `openssl`. The two AppleScript targets are macOS-only; the tmux target is fully cross-platform. On macOS, iTerm2/Ghostty need a one-time **Automation permission** (a system prompt you Allow on first use).
 
 ## Install
 
@@ -39,11 +44,13 @@ Drop the skill directory where your agent looks for skills, e.g.:
 
 ```
 ~/.claude/skills/launch-session/
-  SKILL.md
+  SKILL.md      # how the agent uses it
+  launch.sh     # the driver (detect / place / close; one function per target)
   README.md
+  INSTALL.md
 ```
 
-The agent picks it up by its `SKILL.md` frontmatter; invoke it with `/launch-session` or by asking to "launch it in a new tab" / "start that session".
+The agent picks it up by its `SKILL.md` frontmatter; invoke it with `/launch-session` or by asking to "launch it in a new tab" / "start that session". `SKILL.md` calls `launch.sh` — keep them together.
 
 ## Usage
 
@@ -60,16 +67,18 @@ The agent picks it up by its `SKILL.md` frontmatter; invoke it with `/launch-ses
 
    The child reports back to the launcher on its own when it finishes or gets blocked.
 
+4. When it's done — or you say **"close the tabs"** — the launcher tears it down: `launch.sh close --name <name>` for one, or `--launcher <MAIN>` for all of them.
+
 ## Modes
 
 Where the launched session is placed. Default is `tab`.
 
-| mode | placement | good for |
-|------|-----------|----------|
-| `tab` | a new terminal **tab** beside the launcher | one-off handoffs; watching a child in its own tab |
-| `pane` | a **shared bottom pane** — the first launch creates it, later ones add tabs **inside the same pane** | fan-out: many children kept together, out of the main tab strip |
+| mode | placement |
+|------|-----------|
+| `tab` | a new tab (cmux/iTerm2/Ghostty) or window (tmux) beside the launcher |
+| `pane` | a split into a shared container: cmux bottom pane · tmux `launch-session` window (both keyed per workspace/session, auto-collapsing on last close) · iTerm2/Ghostty split of the launcher's current tab |
 
-`pane` splits downward by default; change with the `SPLIT_DIR` setting (`down`/`up`/`left`/`right`). The pane auto-collapses once its last child is closed.
+`pane` splits downward by default; change with the `SPLIT_DIR` setting (`down`/`up`/`left`/`right`).
 
 ## Configuration
 
@@ -113,24 +122,32 @@ The child's name — its messaging handle and tab label — is:
 - **You → child:** `SendMessage` to the child's name; it lands as a user turn in the child's conversation.
 - **Child → you:** the child `SendMessage`s the launcher; the reply wakes the launcher and carries the child's name so you know which one replied.
 
-Both directions address sessions by **name** — no cmux handles, no id discovery.
+Both directions address sessions by **name** — no multiplexer handles, no id discovery.
 
 ## Closing a launched session
 
-Close it by the stable handle stored in the registry; that kills the cmux surface and the `claude` inside it in one step. In `pane` mode the shared pane collapses automatically once its last child closes. (The skill's "Closing a launched session" section has the exact command.)
+Closing is **agent-side** — it's `launch.sh close`, run by the launcher; you don't close launched tabs by hand.
+
+- **One child:** `launch.sh close --name <NAME>`
+- **All children a launcher spawned** (e.g. you tell it "close the tabs"): `launch.sh close --launcher <MAIN>`, where `<MAIN>` is the launcher's own session name.
+
+Either form looks up the registry row(s) and dispatches on each child's `target` (cmux `close-surface` / tmux `kill-pane`·`kill-window` / iTerm2 close session / Ghostty close tab·terminal), killing the tab/pane/window and the `claude` inside it in one step. It closes by a **stable** stored id, never a live index. In `pane` mode the shared container collapses automatically once its last child closes.
 
 ## Limitations
 
-- **cmux-only.** The placement and teardown are cmux operations. Outside cmux the skill just prints a manual command.
+- **Needs cmux, tmux, iTerm2, or Ghostty.** Placement/teardown are terminal operations; inside none of them the skill prints a manual command. Only the **tmux** driver is cross-platform — cmux/iTerm2/Ghostty are macOS.
+- **AppleScript targets need Automation permission.** iTerm2/Ghostty are driven with AppleScript, so macOS shows a one-time "allow … to control iTerm2/Ghostty?" prompt on first use.
+- **Desktop-notification muting is cmux-only** (`--cmuxnotify`); the other targets have no such notifications.
 - **No headless mode.** A `claude --bg` background session registers as a peer but does not reliably wake to process follow-up messages while idle, so it can't hold the two-way loop this skill depends on. Launched sessions are real interactive sessions in a tab or pane.
+- **Launches are unfocused.** On every target the launcher keeps focus; the child opens as a **background tab** you can switch to. On **Ghostty**, make the tab bar visible so background tabs aren't easy to miss — `macos-titlebar-style = native` and `window-show-tab-bar = always` in `~/.config/ghostty/config` (the default `tabs` titlebar style crams tabs into a thin, cut-off strip).
 - **State is local.** The files below live on the launching machine only.
 
 ## Files & state
 
 | path | what | lifetime |
 |------|------|----------|
-| `${XDG_STATE_HOME:-$HOME/.local/state}/launch-session/sessions.tsv` | registry — one tab-separated row per launched session (`name`, `mode`, `surface_uuid`, `pane_uuid`, `slug`, `launcher`, `timestamp`, `cmuxnotify`); teardown looks up a session's surface handle here by name, and an optional cmux notification hook reads `cmuxnotify` to decide whether to mute that child | durable |
-| `${XDG_STATE_HOME:-$HOME/.local/state}/launch-session/pane-<workspace-uuid>` | one file per cmux workspace holding that workspace's shared bottom-pane UUID, so repeated `pane` launches reuse the same pane | durable (per workspace) |
+| `${XDG_STATE_HOME:-$HOME/.local/state}/launch-session/sessions.tsv` | registry — one tab-separated row per launched session (`name`, `mode`, `teardown_id`, `container_id`, `slug`, `launcher`, `timestamp`, `cmuxnotify`, `target`); `launch.sh close` looks a child up by name and dispatches on `target`. `teardown_id` is the stable close handle (cmux surface UUID / tmux `@window`·`%pane` / iTerm2 session id / Ghostty tab·terminal id) | durable |
+| `${XDG_STATE_HOME:-$HOME/.local/state}/launch-session/pane-<workspace-uuid>` (cmux) / `tmux-win-<session-id>` (tmux) | the shared `pane` container id for that cmux workspace / tmux session, so repeated `pane` launches reuse the same container | durable (per workspace/session) |
 | `${TMPDIR:-/tmp}/launch-session/<slug>.txt` | the seeded prompt (content + coordination footer) handed to the child | ephemeral |
 
 The state directory is safe to delete when no launched sessions are live — it's rebuilt on the next launch. Deleting it while sessions are running just means you lose the stored handles for teardown (close those tabs/panes by hand).
