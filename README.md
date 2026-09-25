@@ -8,4 +8,4 @@ Each skill lives in its own directory with a `SKILL.md` (the skill itself) and i
 
 | Skill | Description |
 |-------|-------------|
-| [launch-session](launch-session/) | Hand a drafted prompt to a fresh, addressable `claude` session — no copy-paste, with two-way messaging between launcher and child. |
+| [launch-session](launch-session/) | A Claude Code skill that hands a drafted prompt to a fresh, addressable `claude` session — no copy-paste, with two-way messaging between the two. |

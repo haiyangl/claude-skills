@@ -30,6 +30,8 @@
 
    All settings have working defaults, so this file is not required.
 
+3. (Optional) To mute launched children's cmux turn-done desktop notifications, install a companion cmux notification hook that matches a child's surface UUID against the registry and suppresses turn-complete banners unless the row's `cmuxnotify` column is `1` (set per launch with `--cmuxnotify`). This hook is external to the skill and not required — see the README's Notifications section.
+
 ## Verify
 
 1. Confirm cmux is on `PATH` and you are inside a surface:

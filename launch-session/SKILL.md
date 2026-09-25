@@ -53,6 +53,12 @@ Three settings, each resolved **per-call argument > environment variable > confi
 
 - **Per-call argument:** e.g. `/launch-session --mode=pane --prefix=worker` — the agent sets `MODE=`/`PREFIX=` for that one launch, overriding everything.
 
+## Notifications
+
+Launched children are **quiet by default**: their turn-done desktop banner / sound / unread ring are suppressed by the `mute-launched-children` cmux notification hook (`~/.config/cmux/hooks/mute-launched-children.sh`), which matches the child's surface UUID against the registry. A child still notifies when it **needs input or permission** — only turn-complete is muted.
+
+Pass **`--cmuxnotify`** to keep a specific launch loud: the agent sets `CMUXNOTIFY=1` for that launch (a per-call flag, no env/config form), which writes `cmuxnotify=1` in the child's registry row; the hook then leaves that child's cmux notifications untouched. The name is deliberate — this is about **cmux desktop notifications** (banner/sound/unread ring), NOT launcher↔child SendMessage, which is unaffected either way. Older rows without the column, and launches without `--cmuxnotify`, read as `cmuxnotify=0` → quiet. With the hook absent, nothing is muted and `--cmuxnotify` is simply a no-op marker.
+
 ## When to use
 
 You have a prompt ready — just drafted via `draft-impl-prompt`, or written inline this turn — and want it running now. NOT for doing the work yourself in this session; this only dispatches.
@@ -78,11 +84,12 @@ CFG="${LAUNCH_SESSION_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/launch-session/c
 MODE="${_e_MODE:-${LAUNCH_SESSION_MODE:-tab}}"    # if the caller passed --mode=<m> this turn, set MODE=<m> AFTER this block (a per-call arg wins over all)
 PREFIX="${_e_PREFIX:-${LAUNCH_SESSION_PREFIX:-}}"    # default empty -> no prefix
 DIR="${_e_DIR:-${LAUNCH_SESSION_SPLIT_DIR:-down}}"   # pane split direction
+CMUXNOTIFY=0    # default QUIET: the mute-launched-children cmux hook mutes this child's turn-done cmux banners. If the caller passed --cmuxnotify this turn, set CMUXNOTIFY=1 AFTER this block so the registry marks the child loud.
 
 NAME="${PREFIX:+$PREFIX-}$SLUG-$(openssl rand -hex 3)"   # <prefix>-<slug>-<rand>, or just <slug>-<rand> when prefix is empty; the rand tail is collision-safe; this is the SendMessage handle
 
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/launch-session"; mkdir -p "$STATE_DIR"
-REG="$STATE_DIR/sessions.tsv"                    # durable registry: name,mode,surface_uuid,pane_uuid,slug,launcher,ts
+REG="$STATE_DIR/sessions.tsv"                    # durable registry: name,mode,surface_uuid,pane_uuid,slug,launcher,ts,cmuxnotify
 PANE_STATE="$STATE_DIR/pane-$CMUX_WORKSPACE_ID"  # this workspace's shared bottom-pane UUID
 
 # guard: the step-1 prompt write MUST have landed at this exact $FILE. If it is empty or
@@ -129,7 +136,7 @@ esac
 cmux send --surface "$SHORT" 'claude -n '"$NAME"' "$(cat '"$FILE"')"\n'
 
 # record name -> stable UUID (+ mode/pane) so a later teardown finds THIS surface even after indices renumber
-printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$NAME" "$MODE" "$UUID" "$PANE" "$SLUG" "$LAUNCHER" "$(date +%s)" >> "$REG"
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$NAME" "$MODE" "$UUID" "$PANE" "$SLUG" "$LAUNCHER" "$(date +%s)" "$CMUXNOTIFY" >> "$REG"
 echo "launched $NAME (mode $MODE, surface $UUID)"
 ```
 

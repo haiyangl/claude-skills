@@ -91,7 +91,11 @@ LAUNCH_SESSION_PREFIX=worker
 
 **Environment variable:** must be exported where a *non-interactive* shell sees it — `~/.zshenv` for zsh (not `~/.zshrc`/`~/.zsh.d`), a `$BASH_ENV` file for bash. An env var overrides the config file. Prefer the config file to avoid this gotcha.
 
-**Per-call:** `--mode=` / `--prefix=` on the invocation, overriding everything for that one launch.
+**Per-call:** `--mode=` / `--prefix=` / `--cmuxnotify` on the invocation, overriding everything for that one launch.
+
+## Notifications (optional)
+
+Launched children can have their **cmux turn-done desktop notification** (banner / sound / unread ring) muted, so a fleet of workers doesn't flood you with pings — while a child that **needs input** still notifies. This is opt-in via a companion cmux notification hook (not part of the skill itself): the hook matches a child's surface UUID against the registry and reads its `cmuxnotify` column (`0` = quiet, `1` = loud). Pass **`--cmuxnotify`** on a launch to mark that child loud (`cmuxnotify=1` in its registry row); with no such hook installed the flag is a harmless no-op. This affects only cmux desktop notifications — launcher↔child messaging is unaffected either way.
 
 ## Session names
 
@@ -125,7 +129,7 @@ Close it by the stable handle stored in the registry; that kills the cmux surfac
 
 | path | what | lifetime |
 |------|------|----------|
-| `${XDG_STATE_HOME:-$HOME/.local/state}/launch-session/sessions.tsv` | registry — one tab-separated row per launched session (`name`, `mode`, `surface_uuid`, `pane_uuid`, `slug`, `launcher`, `timestamp`); teardown looks up a session's surface handle here by name | durable |
+| `${XDG_STATE_HOME:-$HOME/.local/state}/launch-session/sessions.tsv` | registry — one tab-separated row per launched session (`name`, `mode`, `surface_uuid`, `pane_uuid`, `slug`, `launcher`, `timestamp`, `cmuxnotify`); teardown looks up a session's surface handle here by name, and an optional cmux notification hook reads `cmuxnotify` to decide whether to mute that child | durable |
 | `${XDG_STATE_HOME:-$HOME/.local/state}/launch-session/pane-<workspace-uuid>` | one file per cmux workspace holding that workspace's shared bottom-pane UUID, so repeated `pane` launches reuse the same pane | durable (per workspace) |
 | `${TMPDIR:-/tmp}/launch-session/<slug>.txt` | the seeded prompt (content + coordination footer) handed to the child | ephemeral |
 
